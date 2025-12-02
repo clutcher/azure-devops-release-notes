@@ -74,11 +74,11 @@ class MarkdownGenerator:
 
     def _extract_release_date(self, releases: List[Release]) -> str:
         if not releases:
-            return datetime.now().strftime('%B %d, %Y')
+            return 'Unreleased'
 
         prod_times = [r.prod_deploy_time for r in releases if r.prod_deploy_time]
         if not prod_times:
-            return datetime.now().strftime('%B %d, %Y')
+            return 'Unreleased'
 
         latest_time = max(prod_times)
         release_datetime = datetime.fromisoformat(latest_time.replace('Z', '+00:00'))

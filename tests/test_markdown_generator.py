@@ -85,14 +85,13 @@ def should_extract_latest_release_date_when_releases_provided(generator, sample_
     assert date == 'November 06, 2025'
 
 
-def should_return_current_date_when_no_releases(generator):
+def should_return_unreleased_when_no_releases(generator):
     # Given empty releases list
     # When extracting release date
     date = generator._extract_release_date([])
 
-    # Then should return current date (not N/A)
-    assert 'N/A' not in date
-    assert len(date) > 5
+    # Then should return Unreleased
+    assert date == 'Unreleased'
 
 
 def should_generate_all_sections_when_all_data_provided(generator, sample_work_items, sample_releases, sample_contributors):
