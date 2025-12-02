@@ -106,6 +106,13 @@ Examples:
         help='Output file path (default: Release-Notes-<release>.md)'
     )
 
+    parser.add_argument(
+        '--sort-by',
+        choices=['id', 'title'],
+        default='id',
+        help='Sort work items by id or title (default: id)'
+    )
+
     args = parser.parse_args()
 
     try:
@@ -154,7 +161,7 @@ Examples:
             logger.info(f"Found {len(contributors)} contributor(s)")
 
         logger.info("Generating markdown...")
-        generator = MarkdownGenerator(config.organization_url, config.project)
+        generator = MarkdownGenerator(config.organization_url, config.project, args.sort_by)
         markdown = generator.generate(args.release, work_items, releases, contributors)
 
         output_file = args.output or f"Release-Notes-{args.release}.md"

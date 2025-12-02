@@ -20,9 +20,10 @@ class MarkdownGenerator:
         'Impediment': '🚧'
     }
 
-    def __init__(self, organization_url: str, project: str) -> None:
+    def __init__(self, organization_url: str, project: str, sort_by: str = 'id') -> None:
         self.organization_url = organization_url
         self.project = project
+        self.sort_by = sort_by
 
     def generate(
         self,
@@ -152,7 +153,7 @@ class MarkdownGenerator:
 
     def _filter_items_with_notes(self, work_items: List[WorkItem]) -> List[WorkItem]:
         items_with_notes = [item for item in work_items if item.notes]
-        return sorted(items_with_notes, key=lambda x: x.id)
+        return self._sort_work_items(items_with_notes)
 
     def _add_deployment_instruction_item(self, lines: List[str], item: WorkItem) -> None:
         work_item_url = self._build_work_item_url(item.id)
@@ -206,7 +207,7 @@ class MarkdownGenerator:
         lines.append(f"### {emoji} {work_type} ({len(items)})")
         lines.append("")
 
-        sorted_items = sorted(items, key=lambda x: x.id)
+        sorted_items = self._sort_work_items(items)
 
         for item in sorted_items:
             work_item_url = self._build_work_item_url(item.id)
@@ -232,3 +233,8 @@ class MarkdownGenerator:
 
     def _get_work_item_type_emoji(self, work_type: str) -> str:
         return self.WORK_ITEM_TYPE_EMOJIS.get(work_type, '📌')
+
+    def _sort_work_items(self, items: List[WorkItem]) -> List[WorkItem]:
+        if self.sort_by == 'title':
+            return sorted(items, key=lambda x: x.title.lower())
+        return sorted(items, key=lambda x: x.id)
