@@ -316,3 +316,34 @@ def should_show_task_number_first_with_single_instruction_as_subitem_when_genera
     expected_url = f"{organization_url}/{project_name}/_workitems/edit/456"
     assert f"- [#456]({expected_url})" in markdown
     assert "  - Update configuration" in markdown
+
+
+def should_sort_work_items_by_id_when_sort_by_id(generator):
+    # Given work items in random order
+    work_items = [
+        WorkItem(id=5, title="Alpha", type="Bug", state="Done"),
+        WorkItem(id=1, title="Charlie", type="Bug", state="Done"),
+        WorkItem(id=3, title="Beta", type="Bug", state="Done"),
+    ]
+
+    # When sorting
+    sorted_items = generator._sort_work_items(work_items)
+
+    # Then should be sorted by ID
+    assert [item.id for item in sorted_items] == [1, 3, 5]
+
+
+def should_sort_work_items_by_title_when_sort_by_title(organization_url, project_name):
+    # Given generator with title sorting
+    generator = MarkdownGenerator(organization_url, project_name, sort_by='title')
+    work_items = [
+        WorkItem(id=5, title="Charlie", type="Bug", state="Done"),
+        WorkItem(id=1, title="Alpha", type="Bug", state="Done"),
+        WorkItem(id=3, title="Beta", type="Bug", state="Done"),
+    ]
+
+    # When sorting
+    sorted_items = generator._sort_work_items(work_items)
+
+    # Then should be sorted by title alphabetically
+    assert [item.title for item in sorted_items] == ["Alpha", "Beta", "Charlie"]
