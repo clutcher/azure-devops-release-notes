@@ -14,13 +14,15 @@ A Python script to automatically generate release notes from Azure DevOps work i
 - **Flexible Configuration** - All settings via command-line arguments
 - **CI/CD Ready** - Environment variable support for secrets
 - **Type-Safe** - Full type hints throughout codebase
+- **Flexible Sorting** - Sort work items by ID (default) or alphabetically by title
+- **Parent Grouping** - Group work items by parent ticket for better organization
 
 ### Output Format
 
 The tool generates a comprehensive markdown document with:
 
 #### 📊 Summary Section
-- Release date (extracted from production deployments)
+- Release date (extracted from production deployments, shows "Unreleased" if no deployments)
 - Sprint/iteration information
 - Total work items count
 - Microservices released count
@@ -33,7 +35,8 @@ The tool generates a comprehensive markdown document with:
 
 #### 📝 Changelog Section
 - Work items grouped by type
-- Sorted by ID within each type
+- Sortable by ID (default) or title alphabetically
+- Optional sub-grouping by parent ticket within each type
 - Linked to Azure DevOps work items
 - Includes emojis for visual categorization
 
@@ -48,6 +51,8 @@ The tool generates a comprehensive markdown document with:
 - System accounts automatically filtered
 
 ### Example Output
+
+The following example shows output with `--group-by-parent` enabled (work items grouped by parent ticket within each type):
 
 ```markdown
 # Release Notes - 2025.006
@@ -78,10 +83,18 @@ The tool generates a comprehensive markdown document with:
 
 ### 🐛 Bug (5)
 
+#### [#100](https://dev.azure.com/org/project/_workitems/edit/100) Authentication Epic
+
 - [#1234](https://dev.azure.com/org/project/_workitems/edit/1234) Fix login authentication issue
 - [#1235](https://dev.azure.com/org/project/_workitems/edit/1235) Resolve database connection timeout
 
+#### 📌 Standalone Items
+
+- [#1236](https://dev.azure.com/org/project/_workitems/edit/1236) Fix minor UI glitch
+
 ### ✨ Feature (8)
+
+#### [#200](https://dev.azure.com/org/project/_workitems/edit/200) UI Improvements Epic
 
 - [#1240](https://dev.azure.com/org/project/_workitems/edit/1240) Add dark mode support
 - [#1241](https://dev.azure.com/org/project/_workitems/edit/1241) Implement advanced search
@@ -159,6 +172,8 @@ usage: generate_release_notes.py [-h] --organization ORGANIZATION
                                  [--release-field RELEASE_FIELD]
                                  [--notes-field NOTES_FIELD]
                                  [--prod-env PROD_ENV] [-o OUTPUT]
+                                 [--sort-by {id,title}]
+                                 [--group-by-parent]
                                  release
 
 positional arguments:
@@ -174,6 +189,8 @@ optional arguments:
   --notes-field FIELD   Work item field for deployment notes (default: System.Description)
   --prod-env ENV        Production environment name (default: PROD)
   -o, --output FILE     Output file path (default: Release-Notes-<release>.md)
+  --sort-by {id,title}  Sort work items by id or title (default: id)
+  --group-by-parent     Group work items by parent ticket within each type
 ```
 
 #### Examples
@@ -202,6 +219,31 @@ python generate_release_notes.py 2025.006 \
   --notes-field Custom.DeploymentNotes \
   --prod-env Production \
   -o docs/release-2025-006.md
+```
+
+**Sort work items alphabetically by title:**
+```bash
+python generate_release_notes.py 2025.006 \
+  --organization https://dev.azure.com/myorg \
+  --project MyProject \
+  --sort-by title
+```
+
+**Group work items by parent ticket:**
+```bash
+python generate_release_notes.py 2025.006 \
+  --organization https://dev.azure.com/myorg \
+  --project MyProject \
+  --group-by-parent
+```
+
+**Combine sorting and grouping:**
+```bash
+python generate_release_notes.py 2025.006 \
+  --organization https://dev.azure.com/myorg \
+  --project MyProject \
+  --sort-by title \
+  --group-by-parent
 ```
 
 ## Common Issues
@@ -350,57 +392,171 @@ jobs:
 
 ```yaml
 trigger: none
+pr: none
+
+resources:
+  repositories:
+    - repository: release-notes-generator
+      type: github
+      name: your-org/azure-devops-release-notes  # Your fork of the generator
+      ref: refs/heads/main
+      endpoint: github-service-connection  # Your GitHub service connection
 
 parameters:
   - name: releaseNumber
     displayName: 'Release Number (e.g., 2025.006)'
     type: string
 
-pool:
-  vmImage: 'ubuntu-latest'
-
 variables:
-  releaseYear: ${{ split(parameters.releaseNumber, '.')[0] }}
-  outputDir: 'docs/Releases/$(releaseYear)'
-  outputFile: 'Release-${{ parameters.releaseNumber }}.md'
+  - group: release-notes-secrets  # Variable group containing RELEASE_NOTES_PAT
+  - name: releaseYear
+    value: ${{ split(parameters.releaseNumber, '.')[0] }}
+  - name: outputDir
+    value: 'docs/Releases/$(releaseYear)'
+  - name: outputFile
+    value: 'Release-${{ parameters.releaseNumber }}.md'
+  - name: RELEASE_FIELD
+    value: 'Custom.Release'
+  - name: PROD_ENV
+    value: 'PROD'
+  - name: NOTES_FIELD
+    value: 'Custom.Notes'
 
-steps:
-  - checkout: self
-    persistCredentials: true
-    ref: release
+stages:
+- stage: GenerateReleaseNotes
+  jobs:
+  - job: GenerateAndCreatePR
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - checkout: self
+      persistCredentials: true
+    - checkout: release-notes-generator
 
-  - task: UsePythonVersion@0
-    inputs:
-      versionSpec: '3.9'
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '3.9'
 
-  - script: |
-      # Create output directory
-      mkdir -p "$(outputDir)"
+    # Validate release number format
+    - script: |
+        if ! echo "${{ parameters.releaseNumber }}" | grep -qE '^[0-9]{4}\.[0-9]{3}$'; then
+          echo "##vso[task.logissue type=error]Invalid release number format. Expected: YYYY.NNN (e.g., 2025.006)"
+          exit 1
+        fi
+      displayName: 'Validate Release Number Format'
 
-      # Generate release notes
-      python generate_release_notes.py ${{ parameters.releaseNumber }} \
-        --organization $(System.TeamFoundationCollectionUri) \
-        --project $(System.TeamProject) \
-        -o "$(outputDir)/$(outputFile)"
-    displayName: 'Generate Release Notes'
-    env:
-      AZURE_DEVOPS_PAT: $(AZURE_DEVOPS_PAT)
+    - script: |
+        set -e
 
-  - script: |
-      git config --global user.email "azure-pipelines@dev.azure.com"
-      git config --global user.name "Azure Pipelines"
+        cd $(Build.SourcesDirectory)/your-repo  # Your target repository name
 
-      git add "$(outputDir)/$(outputFile)"
-      git commit -m "Add release notes for ${{ parameters.releaseNumber }}"
-      git push origin release
-    displayName: 'Commit and Push Release Notes'
+        # Configure git
+        git config user.email "noreply@dev.azure.com"
+        git config user.name "Azure Pipelines"
 
-  - task: PublishBuildArtifacts@1
-    inputs:
-      pathToPublish: '$(outputDir)/$(outputFile)'
-      artifactName: 'release-notes-${{ parameters.releaseNumber }}'
-    displayName: 'Publish Release Notes Artifact'
+        # Check if remote branch exists
+        BRANCH_NAME="release-notes/${{ parameters.releaseNumber }}"
+
+        if git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
+            echo "Branch $BRANCH_NAME exists. Checking out and pulling..."
+            git fetch origin "$BRANCH_NAME"
+            git checkout "$BRANCH_NAME"
+            git pull origin "$BRANCH_NAME"
+        else
+            echo "Creating a new branch $BRANCH_NAME from main..."
+            git fetch origin main
+            git checkout main
+            git checkout -b "$BRANCH_NAME"
+        fi
+
+        mkdir -p "$(Build.SourcesDirectory)/your-repo/$(outputDir)"
+        cd $(Build.SourcesDirectory)/release-notes-generator
+
+        pip install -r requirements.txt
+
+        # Generate release notes
+        echo "Generating release notes for release ${{ parameters.releaseNumber }}"
+
+        python generate_release_notes.py ${{ parameters.releaseNumber }} \
+          --organization $(System.TeamFoundationCollectionUri) \
+          --project $(System.TeamProject) \
+          --release-field "$(RELEASE_FIELD)" \
+          --prod-env "$(PROD_ENV)" \
+          --notes-field "$(NOTES_FIELD)" \
+          --group-by-parent \
+          --pat $(RELEASE_NOTES_PAT) \
+          -o "$(Build.SourcesDirectory)/your-repo/$(outputDir)/$(outputFile)"
+
+        # Verify file was created
+        if [ ! -f "$(Build.SourcesDirectory)/your-repo/$(outputDir)/$(outputFile)" ]; then
+          echo "##vso[task.logissue type=error]Release notes file was not generated"
+          exit 1
+        fi
+
+        echo "Release notes generated successfully"
+        ls -lh "$(Build.SourcesDirectory)/your-repo/$(outputDir)/$(outputFile)"
+
+        cd $(Build.SourcesDirectory)/your-repo
+
+        git add "$(outputDir)/$(outputFile)"
+
+        # Check if there are changes
+        if git diff --quiet && git diff --cached --quiet; then
+          echo "##vso[task.logissue type=warning]No changes detected. Release notes may already exist."
+          exit 0
+        fi
+
+        git commit -m "Add release notes for ${{ parameters.releaseNumber }}"
+        git push origin "$BRANCH_NAME"
+
+        # Check if PR already exists
+        PR_RESPONSE=$(curl -s -X GET \
+          -u ":$(System.AccessToken)" \
+          "$(System.CollectionUri)$(System.TeamProject)/_apis/git/repositories/your-repo/pullrequests?searchCriteria.sourceRefName=refs/heads/$BRANCH_NAME&searchCriteria.targetRefName=refs/heads/release&api-version=6.0")
+
+        PR_COUNT=$(echo "$PR_RESPONSE" | jq '.count')
+
+        if [ "$PR_COUNT" -gt 0 ]; then
+          echo "PR already exists. Updated the branch with new commits."
+        else
+          # Create PR
+          echo "Creating Pull Request..."
+
+          PR_PAYLOAD=$(jq -n \
+            --arg source "refs/heads/$BRANCH_NAME" \
+            --arg target "refs/heads/release" \
+            --arg title "Release Notes ${{ parameters.releaseNumber }}" \
+            --arg desc "Auto-generated release notes for release ${{ parameters.releaseNumber }}" \
+            '{sourceRefName: $source, targetRefName: $target, title: $title, description: $desc}')
+
+          response=$(curl -s -X POST \
+            -u ":$(System.AccessToken)" \
+            -H "Content-Type: application/json" \
+            -d "$PR_PAYLOAD" \
+            "$(System.CollectionUri)$(System.TeamProject)/_apis/git/repositories/your-repo/pullrequests?api-version=6.0")
+
+          if ! echo "$response" | grep -q "pullRequestId"; then
+            echo "##vso[task.logissue type=error]Failed to create PR"
+            exit 1
+          fi
+
+          echo "PR created successfully"
+        fi
+      displayName: 'Generate Release Notes and Create PR'
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        pathToPublish: '$(Build.SourcesDirectory)/your-repo/$(outputDir)/$(outputFile)'
+        artifactName: 'release-notes-${{ parameters.releaseNumber }}'
+      displayName: 'Publish Release Notes Artifact'
 ```
+
+**Setup Requirements:**
+1. Create a GitHub service connection named `github-service-connection`
+2. Create a variable group `release-notes-secrets` with `RELEASE_NOTES_PAT` (PAT with Work Items Read permission)
+3. Replace `your-org/azure-devops-release-notes` with your GitHub repository
+4. Replace `your-repo` with your target Azure DevOps repository name
+5. Grant the build service permission to create branches and PRs
 
 ## For Developers
 
