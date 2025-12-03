@@ -74,13 +74,13 @@ def should_return_empty_list_when_work_item_ids_are_empty(client):
 
 
 def should_return_work_items_when_details_are_fetched(client):
-    # Given Azure DevOps API returns work item details
+    # Given Azure DevOps API returns work item details (with $expand=relations format)
     mock_response = Mock()
     mock_response.read.return_value = json.dumps({
         'value': [
             {
+                'id': 1,  # ID is at top level when using $expand
                 'fields': {
-                    'System.Id': 1,
                     'System.Title': 'Test Bug',
                     'System.WorkItemType': 'Bug',
                     'System.State': 'Done',
@@ -260,8 +260,8 @@ def should_return_none_when_notes_field_is_missing(client):
     mock_response.read.return_value = json.dumps({
         'value': [
             {
+                'id': 1,
                 'fields': {
-                    'System.Id': 1,
                     'System.Title': 'Test Bug',
                     'System.WorkItemType': 'Bug',
                     'System.State': 'Done',
@@ -287,8 +287,8 @@ def should_strip_whitespace_from_notes_when_present(client):
     mock_response.read.return_value = json.dumps({
         'value': [
             {
+                'id': 1,
                 'fields': {
-                    'System.Id': 1,
                     'System.Title': 'Test Bug',
                     'System.WorkItemType': 'Bug',
                     'System.State': 'Done',
@@ -315,8 +315,8 @@ def should_preserve_html_in_notes_when_present(client):
     mock_response.read.return_value = json.dumps({
         'value': [
             {
+                'id': 1,
                 'fields': {
-                    'System.Id': 1,
                     'System.Title': 'Test Bug',
                     'System.WorkItemType': 'Bug',
                     'System.State': 'Done',
@@ -343,8 +343,8 @@ def should_return_none_when_notes_are_only_whitespace(client):
     mock_response.read.return_value = json.dumps({
         'value': [
             {
+                'id': 1,
                 'fields': {
-                    'System.Id': 1,
                     'System.Title': 'Test Bug',
                     'System.WorkItemType': 'Bug',
                     'System.State': 'Done',
@@ -363,3 +363,58 @@ def should_return_none_when_notes_are_only_whitespace(client):
 
     # Then notes should be None
     assert result[0].notes is None
+
+
+def should_extract_parent_id_when_hierarchy_reverse_relation_exists(client):
+    # Given relations array with parent link
+    relations = [
+        {
+            'rel': 'System.LinkTypes.Hierarchy-Reverse',
+            'url': 'https://dev.azure.com/org/project/_apis/wit/workitems/12345',
+            'attributes': {'name': 'Parent'}
+        }
+    ]
+
+    # When extracting parent ID
+    result = client._extract_parent_id(relations)
+
+    # Then should return parent ID
+    assert result == 12345
+
+
+def should_return_none_when_no_parent_relation_exists(client):
+    # Given relations array without parent link
+    relations = [
+        {
+            'rel': 'System.LinkTypes.Related',
+            'url': 'https://dev.azure.com/org/project/_apis/wit/workitems/67890'
+        }
+    ]
+
+    # When extracting parent ID
+    result = client._extract_parent_id(relations)
+
+    # Then should return None
+    assert result is None
+
+
+def should_return_none_when_relations_is_empty(client):
+    # Given empty relations array
+    relations = []
+
+    # When extracting parent ID
+    result = client._extract_parent_id(relations)
+
+    # Then should return None
+    assert result is None
+
+
+def should_return_none_when_relations_is_none(client):
+    # Given None relations
+    relations = None
+
+    # When extracting parent ID
+    result = client._extract_parent_id(relations)
+
+    # Then should return None
+    assert result is None

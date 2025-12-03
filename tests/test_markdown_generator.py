@@ -347,3 +347,68 @@ def should_sort_work_items_by_title_when_sort_by_title(organization_url, project
 
     # Then should be sorted by title alphabetically
     assert [item.title for item in sorted_items] == ["Alpha", "Beta", "Charlie"]
+
+
+def should_group_work_items_by_parent_when_requested(organization_url, project_name):
+    # Given work items with different parents
+    work_items = [
+        WorkItem(id=1, title="Task 1", type="Bug", state="Done", parent_id=100),
+        WorkItem(id=2, title="Task 2", type="Bug", state="Done", parent_id=100),
+        WorkItem(id=3, title="Task 3", type="Bug", state="Done", parent_id=200),
+        WorkItem(id=4, title="Task 4", type="Bug", state="Done", parent_id=None),
+    ]
+    generator = MarkdownGenerator(organization_url, project_name)
+
+    # When grouping by parent
+    grouped = generator._group_work_items_by_parent(work_items)
+
+    # Then should group correctly
+    assert len(grouped[100]) == 2
+    assert len(grouped[200]) == 1
+    assert len(grouped[None]) == 1
+
+
+def should_show_parent_headers_when_group_by_parent_enabled(organization_url, project_name):
+    # Given generator with group_by_parent enabled
+    generator = MarkdownGenerator(organization_url, project_name, group_by_parent=True)
+    work_items = [
+        WorkItem(id=1, title="Fix bug", type="Bug", state="Done", parent_id=100, parent_title="Epic: Authentication"),
+        WorkItem(id=2, title="Another bug", type="Bug", state="Done", parent_id=100, parent_title="Epic: Authentication"),
+    ]
+
+    # When generating markdown
+    markdown = generator.generate("2025.006", work_items, [], set())
+
+    # Then should include parent header
+    assert "#### [#100]" in markdown
+    assert "Epic: Authentication" in markdown
+
+
+def should_show_standalone_items_section_when_orphans_exist(organization_url, project_name):
+    # Given generator with group_by_parent enabled and orphan items
+    generator = MarkdownGenerator(organization_url, project_name, group_by_parent=True)
+    work_items = [
+        WorkItem(id=1, title="Fix bug", type="Bug", state="Done", parent_id=None),
+        WorkItem(id=2, title="Another bug", type="Bug", state="Done", parent_id=None),
+    ]
+
+    # When generating markdown
+    markdown = generator.generate("2025.006", work_items, [], set())
+
+    # Then should include Standalone Items section
+    assert "#### 📌 Standalone Items" in markdown
+
+
+def should_not_show_parent_headers_when_group_by_parent_disabled(organization_url, project_name):
+    # Given generator with group_by_parent disabled (default)
+    generator = MarkdownGenerator(organization_url, project_name, group_by_parent=False)
+    work_items = [
+        WorkItem(id=1, title="Fix bug", type="Bug", state="Done", parent_id=100, parent_title="Epic: Authentication"),
+    ]
+
+    # When generating markdown
+    markdown = generator.generate("2025.006", work_items, [], set())
+
+    # Then should NOT include parent header (just flat list)
+    assert "#### [#100]" not in markdown
+    assert "Standalone Items" not in markdown
