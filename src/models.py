@@ -10,6 +10,8 @@ class WorkItem:
     state: str
     iteration_path: str = 'N/A'
     notes: Optional[str] = None
+    parent_id: Optional[int] = None
+    parent_title: Optional[str] = None
 
 
 @dataclass

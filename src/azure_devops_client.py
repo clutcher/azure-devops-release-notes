@@ -1,9 +1,10 @@
 import base64
 import json
 import logging
+import re
 import urllib.error
 import urllib.request
-from typing import List, Set, Optional
+from typing import List, Set, Optional, Dict
 
 from models import WorkItem, Release
 
@@ -70,9 +71,51 @@ class AzureDevOpsClient:
         try:
             with urllib.request.urlopen(req) as response:
                 result = json.loads(response.read().decode('utf-8'))
-                return self._parse_work_items(result)
+                work_items = self._parse_work_items(result)
+
+                # Fetch parent details for work items with parents
+                parent_ids = [wi.parent_id for wi in work_items if wi.parent_id]
+                if parent_ids:
+                    parent_details = self.get_parent_details(parent_ids)
+                    for wi in work_items:
+                        if wi.parent_id and wi.parent_id in parent_details:
+                            wi.parent_title = parent_details[wi.parent_id]['title']
+
+                return work_items
         except (urllib.error.HTTPError, urllib.error.URLError) as e:
             self._handle_api_error(e, "getting work item details")
+
+    def get_parent_details(self, parent_ids: List[int]) -> Dict[int, dict]:
+        if not parent_ids:
+            return {}
+
+        unique_ids = list(set(parent_ids))
+        ids_param = ','.join(map(str, unique_ids))
+        url = (f"{self.organization_url}/{self.project}/_apis/wit/workitems?"
+               f"ids={ids_param}&"
+               f"fields=System.Id,System.Title,System.WorkItemType&"
+               f"api-version=7.0")
+
+        req = urllib.request.Request(url, headers={
+            'Authorization': self.auth_header,
+            'Content-Type': 'application/json'
+        })
+
+        try:
+            with urllib.request.urlopen(req) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                parent_map = {}
+                for item in result.get('value', []):
+                    item_id = item.get('id')
+                    fields = item.get('fields', {})
+                    parent_map[item_id] = {
+                        'title': fields.get('System.Title', 'Unknown'),
+                        'type': fields.get('System.WorkItemType', 'Unknown')
+                    }
+                return parent_map
+        except (urllib.error.HTTPError, urllib.error.URLError) as e:
+            logger.warning(f"Could not fetch parent details: {e}")
+            return {}
 
     def get_releases(self, release_tag: str) -> List[Release]:
         try:
@@ -118,23 +161,37 @@ class AzureDevOpsClient:
         ids_param = ','.join(map(str, work_item_ids))
         return (f"{self.organization_url}/{self.project}/_apis/wit/workitems?"
                 f"ids={ids_param}&"
-                f"fields=System.Id,System.Title,System.WorkItemType,System.State,System.IterationPath,{self.notes_field}&"
+                f"$expand=relations&"
                 f"api-version=7.0")
 
     def _parse_work_items(self, result: dict) -> List[WorkItem]:
         work_items = []
         for item in result.get('value', []):
             fields = item.get('fields', {})
+            relations = item.get('relations', [])
             notes = self._parse_notes_field(fields.get(self.notes_field))
+            parent_id = self._extract_parent_id(relations)
             work_items.append(WorkItem(
-                id=fields.get('System.Id'),
+                id=item.get('id'),  # ID is at top level when using $expand
                 title=fields.get('System.Title'),
                 type=fields.get('System.WorkItemType'),
                 state=fields.get('System.State'),
                 iteration_path=fields.get('System.IterationPath', 'N/A'),
-                notes=notes
+                notes=notes,
+                parent_id=parent_id
             ))
         return work_items
+
+    def _extract_parent_id(self, relations: List[dict]) -> Optional[int]:
+        if not relations:
+            return None
+        for relation in relations:
+            if relation.get('rel') == 'System.LinkTypes.Hierarchy-Reverse':
+                url = relation.get('url', '')
+                match = re.search(r'/workitems/(\d+)$', url, re.IGNORECASE)
+                if match:
+                    return int(match.group(1))
+        return None
 
     def _parse_notes_field(self, raw_notes: Optional[str]) -> Optional[str]:
         if not raw_notes:

@@ -113,6 +113,13 @@ Examples:
         help='Sort work items by id or title (default: id)'
     )
 
+    parser.add_argument(
+        '--group-by-parent',
+        action='store_true',
+        default=False,
+        help='Group work items by parent ticket within each type'
+    )
+
     args = parser.parse_args()
 
     try:
@@ -161,7 +168,7 @@ Examples:
             logger.info(f"Found {len(contributors)} contributor(s)")
 
         logger.info("Generating markdown...")
-        generator = MarkdownGenerator(config.organization_url, config.project, args.sort_by)
+        generator = MarkdownGenerator(config.organization_url, config.project, args.sort_by, args.group_by_parent)
         markdown = generator.generate(args.release, work_items, releases, contributors)
 
         output_file = args.output or f"Release-Notes-{args.release}.md"

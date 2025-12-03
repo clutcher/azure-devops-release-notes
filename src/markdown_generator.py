@@ -1,7 +1,7 @@
 import re
 from collections import defaultdict
 from datetime import datetime
-from typing import List, Set, Dict
+from typing import List, Set, Dict, Optional
 
 from models import WorkItem, Release
 
@@ -20,10 +20,11 @@ class MarkdownGenerator:
         'Impediment': '🚧'
     }
 
-    def __init__(self, organization_url: str, project: str, sort_by: str = 'id') -> None:
+    def __init__(self, organization_url: str, project: str, sort_by: str = 'id', group_by_parent: bool = False) -> None:
         self.organization_url = organization_url
         self.project = project
         self.sort_by = sort_by
+        self.group_by_parent = group_by_parent
 
     def generate(
         self,
@@ -207,13 +208,50 @@ class MarkdownGenerator:
         lines.append(f"### {emoji} {work_type} ({len(items)})")
         lines.append("")
 
-        sorted_items = self._sort_work_items(items)
+        if self.group_by_parent:
+            self._add_items_grouped_by_parent(lines, items)
+        else:
+            sorted_items = self._sort_work_items(items)
+            for item in sorted_items:
+                work_item_url = self._build_work_item_url(item.id)
+                lines.append(f"- [#{item.id}]({work_item_url}) {item.title}")
+            lines.append("")
 
-        for item in sorted_items:
-            work_item_url = self._build_work_item_url(item.id)
-            lines.append(f"- [#{item.id}]({work_item_url}) {item.title}")
+    def _add_items_grouped_by_parent(self, lines: List[str], items: List[WorkItem]) -> None:
+        grouped = self._group_work_items_by_parent(items)
 
-        lines.append("")
+        # Items with parents (sorted by parent title)
+        parent_groups = [(pid, pitems) for pid, pitems in grouped.items() if pid is not None]
+        parent_groups.sort(key=lambda x: (x[1][0].parent_title or '').lower())
+
+        for parent_id, parent_items in parent_groups:
+            parent_title = parent_items[0].parent_title or f"#{parent_id}"
+            parent_url = self._build_work_item_url(parent_id)
+            lines.append(f"#### [#{parent_id}]({parent_url}) {parent_title}")
+            lines.append("")
+
+            sorted_items = self._sort_work_items(parent_items)
+            for item in sorted_items:
+                work_item_url = self._build_work_item_url(item.id)
+                lines.append(f"- [#{item.id}]({work_item_url}) {item.title}")
+            lines.append("")
+
+        # Orphan items (no parent)
+        orphans = grouped.get(None, [])
+        if orphans:
+            lines.append("#### 📌 Standalone Items")
+            lines.append("")
+            sorted_orphans = self._sort_work_items(orphans)
+            for item in sorted_orphans:
+                work_item_url = self._build_work_item_url(item.id)
+                lines.append(f"- [#{item.id}]({work_item_url}) {item.title}")
+            lines.append("")
+
+    def _group_work_items_by_parent(self, work_items: List[WorkItem]) -> Dict[Optional[int], List[WorkItem]]:
+        grouped = defaultdict(list)
+        for item in work_items:
+            grouped[item.parent_id].append(item)
+        return grouped
 
     def _add_contributors_section(self, lines: List[str], contributors: Set[str]) -> None:
         if not contributors:
