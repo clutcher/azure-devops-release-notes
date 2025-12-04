@@ -83,8 +83,17 @@ class MarkdownGenerator:
             return 'Unreleased'
 
         latest_time = max(prod_times)
-        release_datetime = datetime.fromisoformat(latest_time.replace('Z', '+00:00'))
+        release_datetime = self._parse_iso_datetime(latest_time)
         return release_datetime.strftime('%B %d, %Y')
+
+    def _parse_iso_datetime(self, iso_string: str) -> datetime:
+        normalized = iso_string.replace('Z', '+00:00')
+        normalized = re.sub(
+            r'\.(\d{1,6})\d*',
+            lambda m: '.' + m.group(1).ljust(6, '0'),
+            normalized
+        )
+        return datetime.fromisoformat(normalized)
 
     def _extract_iterations(self, work_items: List[WorkItem]) -> str:
         if not work_items:
