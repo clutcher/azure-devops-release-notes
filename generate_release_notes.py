@@ -120,6 +120,12 @@ Examples:
         help='Group work items by parent ticket within each type'
     )
 
+    parser.add_argument(
+        '--e2e-build-id',
+        default=None,
+        help='E2E test pipeline build ID to include test results in release notes'
+    )
+
     args = parser.parse_args()
 
     try:
@@ -170,6 +176,15 @@ Examples:
         logger.info("Generating markdown...")
         generator = MarkdownGenerator(config.organization_url, config.project, args.sort_by, args.group_by_parent)
         markdown = generator.generate(args.release, work_items, releases, contributors)
+
+        if args.e2e_build_id:
+            logger.info(f"Fetching E2E test results for build {args.e2e_build_id}...")
+            e2e_results = client.get_e2e_test_results(args.e2e_build_id)
+            if e2e_results:
+                markdown += generator.generate_e2e_section(e2e_results)
+                logger.info(f"E2E results: {e2e_results.passed} passed, {e2e_results.failed} failed, {e2e_results.pass_rate}% pass rate")
+            else:
+                logger.warning("Could not fetch E2E test results, skipping section")
 
         output_file = args.output or f"Release-Notes-{args.release}.md"
 

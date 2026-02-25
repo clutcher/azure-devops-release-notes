@@ -1,5 +1,5 @@
 import pytest
-from models import WorkItem, Release
+from models import WorkItem, Release, E2ETestResults
 
 
 def should_create_work_item_with_all_fields_when_provided():
@@ -88,3 +88,64 @@ def should_create_release_with_defaults_when_optional_fields_omitted():
     assert release.prod_deploy_time is None
     assert release.release_id == ''
     assert release.definition_id == ''
+
+
+def should_create_e2e_test_results_with_all_fields_when_provided():
+    # Given all E2E test results fields are provided
+    build_id = "12345"
+    passed = 42
+    failed = 3
+    skipped = 5
+    total = 50
+    pass_rate = 84.0
+    build_url = "https://dev.azure.com/org/project/_build/results?buildId=12345"
+    test_run_url = "https://dev.azure.com/org/project/_testManagement/runs?runId=999"
+
+    # When creating E2E test results
+    results = E2ETestResults(
+        build_id=build_id,
+        passed=passed,
+        failed=failed,
+        skipped=skipped,
+        total=total,
+        pass_rate=pass_rate,
+        build_url=build_url,
+        test_run_url=test_run_url
+    )
+
+    # Then all fields should be set correctly
+    assert results.build_id == "12345"
+    assert results.passed == 42
+    assert results.failed == 3
+    assert results.skipped == 5
+    assert results.total == 50
+    assert results.pass_rate == 84.0
+    assert results.build_url == build_url
+    assert results.test_run_url == test_run_url
+
+
+def should_create_e2e_test_results_with_optional_test_run_url_none():
+    # Given E2E test results without test_run_url
+    build_id = "12345"
+    passed = 10
+    failed = 0
+    skipped = 0
+    total = 10
+    pass_rate = 100.0
+    build_url = "https://dev.azure.com/org/project/_build/results?buildId=12345"
+
+    # When creating E2E test results without test_run_url
+    results = E2ETestResults(
+        build_id=build_id,
+        passed=passed,
+        failed=failed,
+        skipped=skipped,
+        total=total,
+        pass_rate=pass_rate,
+        build_url=build_url
+    )
+
+    # Then test_run_url should be None
+    assert results.test_run_url is None
+    assert results.passed == 10
+    assert results.pass_rate == 100.0
