@@ -6,7 +6,7 @@ import urllib.error
 import urllib.request
 from typing import List, Set, Optional, Dict
 
-from models import WorkItem, Release
+from models import WorkItem, Release, E2ETestResults
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +142,73 @@ class AzureDevOpsClient:
 
         return contributors
 
+    def get_e2e_test_results(self, build_id: str) -> Optional[E2ETestResults]:
+        try:
+            test_runs_url = (
+                f"{self.organization_url}/{self.project}/_apis/test/runs"
+                f"?buildUri=vstfs:///Build/Build/{build_id}&api-version=7.1"
+            )
+
+            req = urllib.request.Request(test_runs_url, headers={
+                'Authorization': self.auth_header,
+                'Accept': 'application/json'
+            })
+
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode('utf-8'))
+
+            if not data.get('value'):
+                logger.warning(f"No test runs found for build {build_id}")
+                return None
+
+            test_run_id = data['value'][0]['id']
+            logger.info(f"Found test run ID: {test_run_id}")
+
+            test_run_url = (
+                f"{self.organization_url}/{self.project}/_apis/test/runs/{test_run_id}"
+                f"?api-version=7.1"
+            )
+
+            req = urllib.request.Request(test_run_url, headers={
+                'Authorization': self.auth_header,
+                'Accept': 'application/json'
+            })
+
+            with urllib.request.urlopen(req) as response:
+                run_data = json.loads(response.read().decode('utf-8'))
+
+            passed = run_data.get('passedTests', 0)
+            failed = run_data.get('unanalyzedTests', 0)
+            total = run_data.get('totalTests', 0)
+            skipped = run_data.get('notApplicableTests', 0)
+            pass_rate = round((passed / total) * 100, 1) if total > 0 else 0
+
+            build_url = (
+                f"{self.organization_url}/{self.project}/_build/results"
+                f"?buildId={build_id}&view=ms.vss-test-web.build-test-results-tab"
+            )
+            test_run_link = (
+                f"{self.organization_url}/{self.project}/_testManagement/runs"
+                f"?runId={test_run_id}&_a=runCharts"
+            )
+
+            return E2ETestResults(
+                build_id=build_id,
+                passed=passed,
+                failed=failed,
+                skipped=skipped,
+                total=total,
+                pass_rate=pass_rate,
+                build_url=build_url,
+                test_run_url=test_run_link
+            )
+
+        except (urllib.error.HTTPError, urllib.error.URLError) as e:
+            logger.warning(f"Could not fetch E2E test results: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Error fetching E2E test results: {e}")
+            return None
 
     def _create_auth_header(self) -> str:
         credentials = f':{self.pat}'

@@ -2,7 +2,7 @@ import pytest
 import json
 from unittest.mock import Mock, patch, MagicMock
 from azure_devops_client import AzureDevOpsClient, SYSTEM_ACCOUNT_PATTERNS
-from models import WorkItem, Release
+from models import WorkItem, Release, E2ETestResults
 
 
 @pytest.fixture
@@ -418,3 +418,92 @@ def should_return_none_when_relations_is_none(client):
 
     # Then should return None
     assert result is None
+
+
+def should_return_e2e_test_results_when_test_run_exists(client):
+    # Given Azure DevOps API returns test runs for build
+    mock_test_runs_response = Mock()
+    mock_test_runs_response.read.return_value = json.dumps({
+        'value': [{'id': 999}]
+    }).encode('utf-8')
+    mock_test_runs_response.__enter__ = Mock(return_value=mock_test_runs_response)
+    mock_test_runs_response.__exit__ = Mock(return_value=False)
+
+    mock_test_run_response = Mock()
+    mock_test_run_response.read.return_value = json.dumps({
+        'passedTests': 42,
+        'unanalyzedTests': 3,
+        'totalTests': 50,
+        'notApplicableTests': 5
+    }).encode('utf-8')
+    mock_test_run_response.__enter__ = Mock(return_value=mock_test_run_response)
+    mock_test_run_response.__exit__ = Mock(return_value=False)
+
+    # When fetching E2E test results
+    with patch('urllib.request.urlopen', side_effect=[mock_test_runs_response, mock_test_run_response]):
+        result = client.get_e2e_test_results("12345")
+
+    # Then should return E2ETestResults with correct values
+    assert isinstance(result, E2ETestResults)
+    assert result.build_id == "12345"
+    assert result.passed == 42
+    assert result.failed == 3
+    assert result.skipped == 5
+    assert result.total == 50
+    assert result.pass_rate == 84.0
+    assert "12345" in result.build_url
+    assert "999" in result.test_run_url
+
+
+def should_return_none_when_no_test_runs_found(client):
+    # Given Azure DevOps API returns empty test runs
+    mock_response = Mock()
+    mock_response.read.return_value = json.dumps({'value': []}).encode('utf-8')
+    mock_response.__enter__ = Mock(return_value=mock_response)
+    mock_response.__exit__ = Mock(return_value=False)
+
+    # When fetching E2E test results
+    with patch('urllib.request.urlopen', return_value=mock_response):
+        result = client.get_e2e_test_results("12345")
+
+    # Then should return None
+    assert result is None
+
+
+def should_return_none_when_api_error_occurs(client):
+    # Given Azure DevOps API returns an error
+    import urllib.error
+
+    # When fetching E2E test results and API fails
+    with patch('urllib.request.urlopen', side_effect=urllib.error.HTTPError(None, 404, 'Not Found', {}, None)):
+        result = client.get_e2e_test_results("12345")
+
+    # Then should return None gracefully
+    assert result is None
+
+
+def should_calculate_zero_pass_rate_when_total_is_zero(client):
+    # Given Azure DevOps API returns test run with zero tests
+    mock_test_runs_response = Mock()
+    mock_test_runs_response.read.return_value = json.dumps({
+        'value': [{'id': 999}]
+    }).encode('utf-8')
+    mock_test_runs_response.__enter__ = Mock(return_value=mock_test_runs_response)
+    mock_test_runs_response.__exit__ = Mock(return_value=False)
+
+    mock_test_run_response = Mock()
+    mock_test_run_response.read.return_value = json.dumps({
+        'passedTests': 0,
+        'unanalyzedTests': 0,
+        'totalTests': 0,
+        'notApplicableTests': 0
+    }).encode('utf-8')
+    mock_test_run_response.__enter__ = Mock(return_value=mock_test_run_response)
+    mock_test_run_response.__exit__ = Mock(return_value=False)
+
+    # When fetching E2E test results
+    with patch('urllib.request.urlopen', side_effect=[mock_test_runs_response, mock_test_run_response]):
+        result = client.get_e2e_test_results("12345")
+
+    # Then pass rate should be 0 (no division by zero error)
+    assert result.pass_rate == 0
