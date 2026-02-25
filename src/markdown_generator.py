@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import List, Set, Dict, Optional
 
-from models import WorkItem, Release
+from models import WorkItem, Release, E2ETestResults
 
 
 class MarkdownGenerator:
@@ -285,3 +285,29 @@ class MarkdownGenerator:
         if self.sort_by == 'title':
             return sorted(items, key=lambda x: x.title.lower())
         return sorted(items, key=lambda x: x.id)
+
+    def generate_e2e_section(self, results: E2ETestResults) -> str:
+        lines = [
+            "",
+            "## 🧪 E2E Test Results",
+            "",
+            f"**Build:** [#{results.build_id}]({results.build_url})",
+            "",
+        ]
+
+        if results.test_run_url:
+            lines.append(f"**Detailed Report:** [View Test Results]({results.test_run_url})")
+            lines.append("")
+
+        lines.extend([
+            "| Status | Count |",
+            "|--------|-------|",
+            f"| ✅ Passed | {results.passed} |",
+            f"| ❌ Failed | {results.failed} |",
+            f"| ⏭️ Skipped | {results.skipped} |",
+            "",
+            f"**Total:** {results.total} | **Pass Rate:** {results.pass_rate}%",
+            ""
+        ])
+
+        return '\n'.join(lines)
