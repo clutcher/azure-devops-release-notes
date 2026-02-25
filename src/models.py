@@ -21,3 +21,15 @@ class Release:
     prod_deploy_time: Optional[str] = None
     release_id: str = ''
     definition_id: str = ''
+
+
+@dataclass
+class E2ETestResults:
+    build_id: str
+    passed: int
+    failed: int
+    skipped: int
+    total: int
+    pass_rate: float
+    build_url: str
+    test_run_url: Optional[str] = None

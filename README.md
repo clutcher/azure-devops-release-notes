@@ -50,6 +50,12 @@ The tool generates a comprehensive markdown document with:
 - Extracted from work item revision history
 - System accounts automatically filtered
 
+#### 🧪 E2E Test Results Section (Optional)
+- Build link to Azure DevOps pipeline
+- Detailed test run link
+- Pass/Fail/Skipped counts table
+- Total tests and pass rate percentage
+
 ### Example Output
 
 The following example shows output with `--group-by-parent` enabled (work items grouped by parent ticket within each type):
@@ -111,6 +117,20 @@ The following example shows output with `--group-by-parent` enabled (work items 
 - Alice Developer
 - Bob Engineer
 - Charlie Tester
+
+## 🧪 E2E Test Results
+
+**Build:** [#12345](https://dev.azure.com/org/project/_build/results?buildId=12345)
+
+**Detailed Report:** [View Test Results](https://dev.azure.com/org/project/_testManagement/runs?runId=999)
+
+| Status | Count |
+|--------|-------|
+| ✅ Passed | 42 |
+| ❌ Failed | 3 |
+| ⏭️ Skipped | 5 |
+
+**Total:** 50 | **Pass Rate:** 84.0%
 ```
 
 ## How to Use It
@@ -191,6 +211,7 @@ optional arguments:
   -o, --output FILE     Output file path (default: Release-Notes-<release>.md)
   --sort-by {id,title}  Sort work items by id or title (default: id)
   --group-by-parent     Group work items by parent ticket within each type
+  --e2e-build-id ID     E2E test pipeline build ID to include test results
 ```
 
 #### Examples
@@ -244,6 +265,14 @@ python generate_release_notes.py 2025.006 \
   --project MyProject \
   --sort-by title \
   --group-by-parent
+```
+
+**Include E2E test results:**
+```bash
+python generate_release_notes.py 2025.006 \
+  --organization https://dev.azure.com/myorg \
+  --project MyProject \
+  --e2e-build-id 12345
 ```
 
 ## Common Issues

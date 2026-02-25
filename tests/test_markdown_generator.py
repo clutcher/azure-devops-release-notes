@@ -1,6 +1,6 @@
 import pytest
 from markdown_generator import MarkdownGenerator
-from models import WorkItem, Release
+from models import WorkItem, Release, E2ETestResults
 
 
 @pytest.fixture
@@ -412,3 +412,78 @@ def should_not_show_parent_headers_when_group_by_parent_disabled(organization_ur
     # Then should NOT include parent header (just flat list)
     assert "#### [#100]" not in markdown
     assert "Standalone Items" not in markdown
+
+
+def should_generate_e2e_section_with_all_fields(organization_url, project_name):
+    # Given generator and E2E test results
+    generator = MarkdownGenerator(organization_url, project_name)
+    results = E2ETestResults(
+        build_id="12345",
+        passed=42,
+        failed=3,
+        skipped=5,
+        total=50,
+        pass_rate=84.0,
+        build_url="https://dev.azure.com/org/project/_build/results?buildId=12345",
+        test_run_url="https://dev.azure.com/org/project/_testManagement/runs?runId=999"
+    )
+
+    # When generating E2E section
+    markdown = generator.generate_e2e_section(results)
+
+    # Then should include all E2E information
+    assert "## 🧪 E2E Test Results" in markdown
+    assert "[#12345]" in markdown
+    assert "View Test Results" in markdown
+    assert "| ✅ Passed | 42 |" in markdown
+    assert "| ❌ Failed | 3 |" in markdown
+    assert "| ⏭️ Skipped | 5 |" in markdown
+    assert "**Total:** 50" in markdown
+    assert "**Pass Rate:** 84.0%" in markdown
+
+
+def should_generate_e2e_section_without_test_run_url(organization_url, project_name):
+    # Given generator and E2E test results without test_run_url
+    generator = MarkdownGenerator(organization_url, project_name)
+    results = E2ETestResults(
+        build_id="12345",
+        passed=10,
+        failed=0,
+        skipped=0,
+        total=10,
+        pass_rate=100.0,
+        build_url="https://dev.azure.com/org/project/_build/results?buildId=12345",
+        test_run_url=None
+    )
+
+    # When generating E2E section
+    markdown = generator.generate_e2e_section(results)
+
+    # Then should include build link but not test run link
+    assert "[#12345]" in markdown
+    assert "View Test Results" not in markdown
+    assert "**Pass Rate:** 100.0%" in markdown
+
+
+def should_generate_e2e_section_with_correct_table_format(organization_url, project_name):
+    # Given generator and E2E test results
+    generator = MarkdownGenerator(organization_url, project_name)
+    results = E2ETestResults(
+        build_id="999",
+        passed=0,
+        failed=10,
+        skipped=0,
+        total=10,
+        pass_rate=0.0,
+        build_url="https://example.com",
+        test_run_url=None
+    )
+
+    # When generating E2E section
+    markdown = generator.generate_e2e_section(results)
+
+    # Then should have correct markdown table structure
+    assert "| Status | Count |" in markdown
+    assert "|--------|-------|" in markdown
+    assert "| ❌ Failed | 10 |" in markdown
+    assert "**Pass Rate:** 0.0%" in markdown
