@@ -88,6 +88,22 @@ def should_create_release_with_defaults_when_optional_fields_omitted():
     assert release.prod_deploy_time is None
     assert release.release_id == ''
     assert release.definition_id == ''
+    assert release.prod_approved_by is None
+    assert release.prod_deployed_by is None
+
+
+def should_create_release_with_approver_and_deployer_when_provided():
+    # Given a release with production audit fields
+    release = Release(
+        microservice="test-service",
+        version="v1.0.0",
+        prod_approved_by="Alice Approver",
+        prod_deployed_by="Bob Deployer"
+    )
+
+    # Then the audit fields should be set correctly
+    assert release.prod_approved_by == "Alice Approver"
+    assert release.prod_deployed_by == "Bob Deployer"
 
 
 def should_create_e2e_test_results_with_all_fields_when_provided():
