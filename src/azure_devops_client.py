@@ -16,6 +16,8 @@ SYSTEM_ACCOUNT_PATTERNS = [
     '<', '>'
 ]
 
+APPROVAL_COMMENT_PATTERN = re.compile(r'Approved by (.+?)\s+via\b', re.IGNORECASE)
+
 MAX_DEBUG_RELEASES = 3
 
 
@@ -294,7 +296,7 @@ class AzureDevOpsClient:
 
     def _get_classic_releases(self, release_tag: str) -> List[Release]:
         vsrm_url = self._get_vsrm_url()
-        url = f"{vsrm_url}/{self.project}/_apis/release/releases?api-version=7.0&$top=100&tagFilter={release_tag}&$expand=environments"
+        url = f"{vsrm_url}/{self.project}/_apis/release/releases?api-version=7.0&$top=100&tagFilter={release_tag}&$expand=environments,approvals"
 
         req = urllib.request.Request(url, headers={
             'Authorization': self.auth_header,
@@ -332,24 +334,84 @@ class AzureDevOpsClient:
         release_id = release_data.get('id', '')
         definition_id = release_data.get('releaseDefinition', {}).get('id', '')
 
-        prod_deploy_time = self._extract_prod_deployment_time(release_data)
+        prod_environment = self._find_prod_environment(release_data)
+        prod_deploy_time = self._extract_prod_deployment_time(prod_environment)
+        prod_approved_by = self._extract_release_approver(release_data, prod_environment)
+        prod_deployed_by = self._extract_release_deployer(prod_environment)
 
         return Release(
             microservice=pipeline_name,
             version=release_name,
             prod_deploy_time=prod_deploy_time,
             release_id=release_id,
-            definition_id=definition_id
+            definition_id=definition_id,
+            prod_approved_by=prod_approved_by,
+            prod_deployed_by=prod_deployed_by
         )
 
-    def _extract_prod_deployment_time(self, release_data: dict) -> Optional[str]:
+    def _find_prod_environment(self, release_data: dict) -> Optional[dict]:
         environments = release_data.get('environments', [])
         for env in environments:
             if env.get('name') == self.production_environment:
-                deploy_steps = env.get('deploySteps', [])
-                if deploy_steps:
-                    return deploy_steps[-1].get('lastModifiedOn')
+                return env
         return None
+
+    def _extract_prod_deployment_time(self, prod_environment: Optional[dict]) -> Optional[str]:
+        if not prod_environment:
+            return None
+        deploy_steps = prod_environment.get('deploySteps', [])
+        if deploy_steps:
+            return deploy_steps[-1].get('lastModifiedOn')
+        return None
+
+    def _extract_release_approver(self, release_data: dict, prod_environment: Optional[dict]) -> Optional[str]:
+        approver = self._find_manual_approver(prod_environment)
+        if approver:
+            return approver
+        return self._find_approver_in_comments(release_data)
+
+    def _extract_release_deployer(self, prod_environment: Optional[dict]) -> Optional[str]:
+        if not prod_environment:
+            return None
+        for step in reversed(prod_environment.get('deploySteps', [])):
+            display_name = (step.get('requestedBy') or {}).get('displayName')
+            if display_name and not self._is_system_account(display_name):
+                return display_name
+        return None
+
+    def _find_manual_approver(self, prod_environment: Optional[dict]) -> Optional[str]:
+        if not prod_environment:
+            return None
+        approvals = prod_environment.get('preDeployApprovals', [])
+        for approval in reversed(approvals):
+            if approval.get('status') != 'approved':
+                continue
+            display_name = (approval.get('approvedBy') or {}).get('displayName')
+            if display_name and not self._is_system_account(display_name):
+                return display_name
+        return None
+
+    def _find_approver_in_comments(self, release_data: dict) -> Optional[str]:
+        for env in release_data.get('environments', []):
+            for key in ('preDeployApprovals', 'postDeployApprovals'):
+                for approval in reversed(env.get(key, [])):
+                    if approval.get('status') != 'approved':
+                        continue
+                    name = self._parse_approver_comment(approval.get('comments'))
+                    if name:
+                        return name
+        return None
+
+    def _parse_approver_comment(self, comments: Optional[str]) -> Optional[str]:
+        if not comments:
+            return None
+        match = APPROVAL_COMMENT_PATTERN.search(comments)
+        if not match:
+            return None
+        name = match.group(1).strip()
+        if not name or self._is_system_account(name):
+            return None
+        return name
 
     def _get_releases_from_builds(self, release_tag: str) -> List[Release]:
         try:

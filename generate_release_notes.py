@@ -35,6 +35,16 @@ def group_by_type(work_items: List[WorkItem]) -> Dict[str, List[WorkItem]]:
     return grouped
 
 
+def apply_release_actor_overrides(releases, approved_by, deployed_by) -> None:
+    if not approved_by and not deployed_by:
+        return
+    for release in releases:
+        if approved_by:
+            release.prod_approved_by = approved_by
+        if deployed_by:
+            release.prod_deployed_by = deployed_by
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description='Generate release notes from Azure DevOps work items',
@@ -126,6 +136,18 @@ Examples:
         help='E2E test pipeline build ID to include test results in release notes'
     )
 
+    parser.add_argument(
+        '--approved-by',
+        default=None,
+        help='Override the auto-detected production approver (applied to every microservice release)'
+    )
+
+    parser.add_argument(
+        '--deployed-by',
+        default=None,
+        help='Override the auto-detected production deployer (applied to every microservice release)'
+    )
+
     args = parser.parse_args()
 
     try:
@@ -166,6 +188,8 @@ Examples:
 
         if releases:
             logger.info(f"Found {len(releases)} microservice release(s)")
+
+        apply_release_actor_overrides(releases, args.approved_by, args.deployed_by)
 
         logger.info("Extracting contributors from work item history...")
         contributors = client.get_work_item_contributors(work_item_ids)

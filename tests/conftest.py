@@ -25,14 +25,18 @@ def sample_releases():
             version="v1.2.3",
             prod_deploy_time="2025-11-06T11:39:14.667Z",
             release_id="123",
-            definition_id="456"
+            definition_id="456",
+            prod_approved_by="Alice Approver",
+            prod_deployed_by="Bob Deployer"
         ),
         Release(
             microservice="api-gateway",
             version="v2.0.1",
             prod_deploy_time="2025-11-06T12:00:00.000Z",
             release_id="124",
-            definition_id="457"
+            definition_id="457",
+            prod_approved_by="Alice Approver",
+            prod_deployed_by="Bob Deployer"
         ),
     ]
 

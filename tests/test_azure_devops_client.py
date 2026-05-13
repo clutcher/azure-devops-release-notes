@@ -190,7 +190,16 @@ def should_parse_classic_release_with_all_fields_when_provided(client):
             {
                 'name': 'PROD',
                 'deploySteps': [
-                    {'lastModifiedOn': '2025-11-06T11:39:14.667Z'}
+                    {
+                        'lastModifiedOn': '2025-11-06T11:39:14.667Z',
+                        'requestedBy': {'displayName': 'Bob Deployer'}
+                    }
+                ],
+                'preDeployApprovals': [
+                    {
+                        'status': 'approved',
+                        'approvedBy': {'displayName': 'Alice Approver'}
+                    }
                 ]
             }
         ]
@@ -206,29 +215,21 @@ def should_parse_classic_release_with_all_fields_when_provided(client):
     assert result.release_id == '789'
     assert result.definition_id == '456'
     assert result.prod_deploy_time == '2025-11-06T11:39:14.667Z'
+    assert result.prod_approved_by == 'Alice Approver'
+    assert result.prod_deployed_by == 'Bob Deployer'
 
 
 def should_extract_prod_deployment_time_when_environment_exists(client):
-    # Given release data with PROD environment
-    release_data = {
-        'environments': [
-            {
-                'name': 'DEV',
-                'deploySteps': [
-                    {'lastModifiedOn': '2025-11-05T11:39:14.667Z'}
-                ]
-            },
-            {
-                'name': 'PROD',
-                'deploySteps': [
-                    {'lastModifiedOn': '2025-11-06T11:39:14.667Z'}
-                ]
-            }
+    # Given a PROD environment with deploy steps
+    prod_environment = {
+        'name': 'PROD',
+        'deploySteps': [
+            {'lastModifiedOn': '2025-11-06T11:39:14.667Z'}
         ]
     }
 
     # When extracting production deployment time
-    result = client._extract_prod_deployment_time(release_data)
+    result = client._extract_prod_deployment_time(prod_environment)
 
     # Then should return PROD environment deployment time
     assert result == '2025-11-06T11:39:14.667Z'
@@ -247,11 +248,218 @@ def should_return_none_when_prod_environment_not_found(client):
         ]
     }
 
-    # When extracting production deployment time
-    result = client._extract_prod_deployment_time(release_data)
+    # When finding the prod environment
+    prod_environment = client._find_prod_environment(release_data)
+
+    # Then no environment should be found
+    assert prod_environment is None
+    assert client._extract_prod_deployment_time(prod_environment) is None
+    assert client._extract_release_approver(release_data, prod_environment) is None
+    assert client._extract_release_deployer(prod_environment) is None
+
+
+def should_find_prod_environment_when_present(client):
+    # Given release data with both DEV and PROD environments
+    release_data = {
+        'environments': [
+            {'name': 'DEV'},
+            {'name': 'PROD', 'deploySteps': [{'lastModifiedOn': '2025-11-06T11:39:14.667Z'}]}
+        ]
+    }
+
+    # When finding the prod environment
+    prod_environment = client._find_prod_environment(release_data)
+
+    # Then should return the PROD environment
+    assert prod_environment is not None
+    assert prod_environment.get('name') == 'PROD'
+
+
+def should_extract_manual_prod_approver_when_human_approval_present(client):
+    # Given a PROD environment with a human approval
+    release_data = {
+        'environments': [
+            {
+                'name': 'PROD',
+                'preDeployApprovals': [
+                    {'status': 'approved', 'approvedBy': {'displayName': 'Alice Approver'}}
+                ]
+            }
+        ]
+    }
+    prod_environment = client._find_prod_environment(release_data)
+
+    # When extracting the release approver
+    result = client._extract_release_approver(release_data, prod_environment)
+
+    # Then should return the human approver
+    assert result == 'Alice Approver'
+
+
+def should_use_latest_prod_approver_when_multiple_approvals_exist(client):
+    # Given multiple approved approvals on PROD
+    release_data = {
+        'environments': [
+            {
+                'name': 'PROD',
+                'preDeployApprovals': [
+                    {'status': 'approved', 'approvedBy': {'displayName': 'First Approver'}},
+                    {'status': 'approved', 'approvedBy': {'displayName': 'Latest Approver'}}
+                ]
+            }
+        ]
+    }
+    prod_environment = client._find_prod_environment(release_data)
+
+    # When extracting the release approver
+    result = client._extract_release_approver(release_data, prod_environment)
+
+    # Then should return the most recent approver
+    assert result == 'Latest Approver'
+
+
+def should_skip_pending_prod_approvals_when_extracting_approver(client):
+    # Given pending and approved approvals on PROD
+    release_data = {
+        'environments': [
+            {
+                'name': 'PROD',
+                'preDeployApprovals': [
+                    {'status': 'approved', 'approvedBy': {'displayName': 'Alice Approver'}},
+                    {'status': 'pending', 'approvedBy': {'displayName': 'Pending Person'}}
+                ]
+            }
+        ]
+    }
+    prod_environment = client._find_prod_environment(release_data)
+
+    # When extracting the release approver
+    result = client._extract_release_approver(release_data, prod_environment)
+
+    # Then should ignore pending entries and return the approved one
+    assert result == 'Alice Approver'
+
+
+def should_fall_back_to_comment_when_prod_approval_is_automated(client):
+    # Given an automated bot approval on PROD with a human name embedded in another env's comments
+    release_data = {
+        'environments': [
+            {
+                'name': 'PROMOTE',
+                'preDeployApprovals': [
+                    {
+                        'status': 'approved',
+                        'isAutomated': False,
+                        'approvedBy': {'displayName': 'Project Collection Build Service (Org)'},
+                        'comments': 'Approved by Otoniel Cajigas via approval-release pipeline for release 2026.014'
+                    }
+                ]
+            },
+            {
+                'name': 'PROD',
+                'preDeployApprovals': [
+                    {'status': 'approved', 'isAutomated': True, 'comments': ''}
+                ]
+            }
+        ]
+    }
+    prod_environment = client._find_prod_environment(release_data)
+
+    # When extracting the release approver
+    result = client._extract_release_approver(release_data, prod_environment)
+
+    # Then should return the human name extracted from PROMOTE comments
+    assert result == 'Otoniel Cajigas'
+
+
+def should_parse_approver_name_from_comment_when_pattern_matches(client):
+    # Given an approval comment with the standard pipeline message
+    comment = 'Approved by Nagesh Panyam via approval-release pipeline for release 2026.015'
+
+    # When parsing the comment
+    result = client._parse_approver_comment(comment)
+
+    # Then should return the approver name
+    assert result == 'Nagesh Panyam'
+
+
+def should_return_none_when_comment_does_not_match_pattern(client):
+    # Given a comment without the expected pattern
+    comment = 'Auto-approved by configuration'
+
+    # When parsing the comment
+    result = client._parse_approver_comment(comment)
 
     # Then should return None
     assert result is None
+
+
+def should_return_none_when_comment_is_empty(client):
+    # Given an empty/missing comment
+    assert client._parse_approver_comment(None) is None
+    assert client._parse_approver_comment('') is None
+
+
+def should_extract_prod_deployer_when_human_triggered_prod_deploy(client):
+    # Given a PROD deploy step triggered by a human
+    release_data = {
+        'environments': [
+            {
+                'name': 'PROD',
+                'deploySteps': [{'requestedBy': {'displayName': 'Bob Deployer'}}]
+            }
+        ]
+    }
+    prod_environment = client._find_prod_environment(release_data)
+
+    # When extracting the release deployer
+    result = client._extract_release_deployer(prod_environment)
+
+    # Then should return the human deployer
+    assert result == 'Bob Deployer'
+
+
+def should_return_none_when_prod_deploy_triggered_by_system_account(client):
+    # Given a PROD deploy step triggered only by a system account
+    release_data = {
+        'environments': [
+            {
+                'name': 'PROD',
+                'deploySteps': [
+                    {'requestedBy': {'displayName': 'Project Collection Build Service'}}
+                ]
+            }
+        ]
+    }
+    prod_environment = client._find_prod_environment(release_data)
+
+    # When extracting the release deployer
+    result = client._extract_release_deployer(prod_environment)
+
+    # Then should return None (no human deployer is recorded)
+    assert result is None
+
+
+def should_return_latest_prod_deployer_when_multiple_steps_exist(client):
+    # Given multiple deploy steps on PROD
+    release_data = {
+        'environments': [
+            {
+                'name': 'PROD',
+                'deploySteps': [
+                    {'requestedBy': {'displayName': 'First Deployer'}},
+                    {'requestedBy': {'displayName': 'Latest Deployer'}}
+                ]
+            }
+        ]
+    }
+    prod_environment = client._find_prod_environment(release_data)
+
+    # When extracting the release deployer
+    result = client._extract_release_deployer(prod_environment)
+
+    # Then should return the most recent deployer
+    assert result == 'Latest Deployer'
 
 
 def should_return_none_when_notes_field_is_missing(client):

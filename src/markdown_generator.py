@@ -57,22 +57,36 @@ class MarkdownGenerator:
         lines.append("## 📊 Summary")
         lines.append("")
 
-        release_date = self._extract_release_date(releases)
-        lines.append(f"**Release Date:** {release_date}")
+        audit = [f"**Release Date:** {self._extract_release_date(releases)}"]
+        approvers = self._extract_unique_names(releases, 'prod_approved_by')
+        if approvers:
+            audit.append(f"**Approved By:** {approvers}")
+        deployers = self._extract_unique_names(releases, 'prod_deployed_by')
+        if deployers:
+            audit.append(f"**Deployed By:** {deployers}")
+
+        scope = [
+            f"**Iteration:** {self._extract_iterations(work_items)}",
+            self._format_item_count(len(work_items), len(releases) if releases else 0)
+        ]
+
+        self._append_grouped_block(lines, audit)
         lines.append("")
-
-        iterations = self._extract_iterations(work_items)
-        lines.append(f"**Iteration:** {iterations}")
+        self._append_grouped_block(lines, scope)
         lines.append("")
-
-        total_items = len(work_items)
-        microservices_count = len(releases) if releases else 0
-
-        lines.append(f"**Total Work Items:** {total_items}")
-        lines.append(f"**Microservices Released:** {microservices_count}")
-        lines.append("")
-
         self._add_breakdown_by_type(lines, grouped_items)
+
+    def _append_grouped_block(self, lines: List[str], group: List[str]) -> None:
+        for index, entry in enumerate(group):
+            if index < len(group) - 1:
+                lines.append(f"{entry}  ")
+            else:
+                lines.append(entry)
+
+    def _format_item_count(self, total_items: int, microservices_count: int) -> str:
+        if microservices_count > 0:
+            return f"**Work Items:** {total_items} across {microservices_count} microservices"
+        return f"**Work Items:** {total_items}"
 
     def _extract_release_date(self, releases: List[Release]) -> str:
         if not releases:
@@ -85,6 +99,14 @@ class MarkdownGenerator:
         latest_time = max(prod_times)
         release_datetime = self._parse_iso_datetime(latest_time)
         return release_datetime.strftime('%B %d, %Y')
+
+    def _extract_unique_names(self, releases: List[Release], attribute: str) -> Optional[str]:
+        if not releases:
+            return None
+        names = {getattr(r, attribute) for r in releases if getattr(r, attribute)}
+        if not names:
+            return None
+        return ', '.join(sorted(names))
 
     def _parse_iso_datetime(self, iso_string: str) -> datetime:
         normalized = iso_string.replace('Z', '+00:00')
@@ -113,7 +135,6 @@ class MarkdownGenerator:
 
     def _add_breakdown_by_type(self, lines: List[str], grouped_items: Dict[str, List[WorkItem]]) -> None:
         lines.append("**Breakdown by Type:**")
-        lines.append("")
 
         for work_type in self.WORK_ITEM_TYPE_ORDER:
             if work_type in grouped_items:

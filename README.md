@@ -23,10 +23,13 @@ The tool generates a comprehensive markdown document with:
 
 #### 📊 Summary Section
 - Release date (extracted from production deployments, shows "Unreleased" if no deployments)
+- Production approver (auto-detected; see *Approver/Deployer Detection* below)
+- Production deployer (auto-detected when a human triggered the PROD deploy step; otherwise can be supplied via `--deployed-by`)
 - Sprint/iteration information
-- Total work items count
-- Microservices released count
+- Work items count combined with microservices released into one line (e.g. `Work Items: 11 across 12 microservices`)
 - Breakdown by work item type (Bug, Feature, etc.)
+
+The Summary uses Markdown soft line breaks (two trailing spaces) to keep related fields visually tight: audit info (Date, Approved By, Deployed By) renders as one paragraph, scope info (Iteration, Work Items) as the next, then the breakdown.
 
 #### 📦 Binaries Section
 - Microservice names (linked to Azure DevOps pipelines)
@@ -65,15 +68,14 @@ The following example shows output with `--group-by-parent` enabled (work items 
 
 ## 📊 Summary
 
-**Release Date:** November 06, 2025
+**Release Date:** November 06, 2025  
+**Approved By:** Alice Approver  
+**Deployed By:** Bob Deployer
 
-**Iteration:** Sprint 24, Sprint 23
-
-**Total Work Items:** 15
-**Microservices Released:** 3
+**Iteration:** Sprint 24, Sprint 23  
+**Work Items:** 15 across 3 microservices
 
 **Breakdown by Type:**
-
 - 🐛 **Bug:** 5
 - ✨ **Feature:** 8
 - 🔧 **Task:** 2
@@ -194,24 +196,29 @@ usage: generate_release_notes.py [-h] --organization ORGANIZATION
                                  [--prod-env PROD_ENV] [-o OUTPUT]
                                  [--sort-by {id,title}]
                                  [--group-by-parent]
+                                 [--e2e-build-id E2E_BUILD_ID]
+                                 [--approved-by APPROVED_BY]
+                                 [--deployed-by DEPLOYED_BY]
                                  release
 
 positional arguments:
-  release               Release number (e.g., 2025.006)
+  release                  Release number (e.g., 2025.006)
 
 required arguments:
-  --organization ORG    Azure DevOps organization URL
-  --project PROJECT     Azure DevOps project name
+  --organization ORG       Azure DevOps organization URL
+  --project PROJECT        Azure DevOps project name
 
 optional arguments:
-  --pat PAT             Personal Access Token (or use AZURE_DEVOPS_PAT env var)
-  --release-field FIELD Custom field for release tracking (default: Custom.Release)
-  --notes-field FIELD   Work item field for deployment notes (default: System.Description)
-  --prod-env ENV        Production environment name (default: PROD)
-  -o, --output FILE     Output file path (default: Release-Notes-<release>.md)
-  --sort-by {id,title}  Sort work items by id or title (default: id)
-  --group-by-parent     Group work items by parent ticket within each type
-  --e2e-build-id ID     E2E test pipeline build ID to include test results
+  --pat PAT                Personal Access Token (or use AZURE_DEVOPS_PAT env var)
+  --release-field FIELD    Custom field for release tracking (default: Custom.Release)
+  --notes-field FIELD      Work item field for deployment notes (default: System.Description)
+  --prod-env ENV           Production environment name (default: PROD)
+  -o, --output FILE        Output file path (default: Release-Notes-<release>.md)
+  --sort-by {id,title}     Sort work items by id or title (default: id)
+  --group-by-parent        Group work items by parent ticket within each type
+  --e2e-build-id ID        E2E test pipeline build ID to include test results
+  --approved-by NAME       Override the auto-detected production approver (applied to every microservice release)
+  --deployed-by NAME       Override the auto-detected production deployer (applied to every microservice release)
 ```
 
 #### Examples
@@ -274,6 +281,28 @@ python generate_release_notes.py 2025.006 \
   --project MyProject \
   --e2e-build-id 12345
 ```
+
+**Override approver/deployer names** (use when auto-detection cannot find a human, e.g. fully automated pipelines):
+```bash
+python generate_release_notes.py 2025.006 \
+  --organization https://dev.azure.com/myorg \
+  --project MyProject \
+  --approved-by "Otoniel Cajigas" \
+  --deployed-by "Igor Zarvanskyi"
+```
+
+### Approver/Deployer Detection
+
+The tool tries to populate the `Approved By` and `Deployed By` lines automatically by reading the Azure DevOps release response (with `$expand=environments,approvals`):
+
+1. **Approver**
+   1. First, scan the PROD environment's `preDeployApprovals` for an `approvedBy.displayName` that is **not** a system account ("Project Collection Build Service", "Microsoft.VisualStudio.Services…"). Use that name if found.
+   2. Otherwise, scan **every** environment's approval `comments` for the pattern `Approved by <NAME> via …`. This supports pipelines that approve PROMOTE programmatically and record the human's name in the comment (see `release-approval-pipeline.yaml` in Flow-services for the convention).
+2. **Deployer** — scan the PROD environment's `deploySteps[].requestedBy.displayName`, skipping system accounts. If no human triggered the deploy, the field stays empty and the line is omitted entirely.
+
+When auto-detection cannot find a name (e.g. fully automated PROD pipeline with no human deploy step), pass `--approved-by` / `--deployed-by` explicitly. These values override whatever was detected and apply to every microservice in the release.
+
+The Summary line is rendered as `**Approved By:** Name1, Name2` when multiple unique names exist across microservices, and omitted entirely when no name is available.
 
 ## Common Issues
 
@@ -611,18 +640,19 @@ pytest tests/test_models.py
 
 ```
 .
-├── generate_release_notes.py  # Main CLI script
+├── generate_release_notes.py  # Main CLI script (argparse + apply_release_actor_overrides)
 ├── src/
 │   ├── config.py              # Configuration management
-│   ├── models.py              # Data models (WorkItem, Release)
-│   ├── azure_devops_client.py # Azure DevOps API client
-│   └── markdown_generator.py  # Markdown formatting
+│   ├── models.py              # Data models (WorkItem, Release, E2ETestResults)
+│   ├── azure_devops_client.py # Azure DevOps API client (releases, approvals, E2E)
+│   └── markdown_generator.py  # Markdown formatting (Summary, Binaries, Changelog, E2E)
 ├── tests/
-│   ├── conftest.py            # Pytest fixtures
+│   ├── conftest.py                       # Pytest fixtures
 │   ├── test_config.py
 │   ├── test_models.py
 │   ├── test_azure_devops_client.py
-│   └── test_markdown_generator.py
+│   ├── test_markdown_generator.py
+│   └── test_generate_release_notes.py    # CLI override-helper tests
 ├── requirements.txt           # Runtime dependencies (none)
 ├── requirements-dev.txt       # Development dependencies
 └── README.md

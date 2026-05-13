@@ -21,6 +21,8 @@ class Release:
     prod_deploy_time: Optional[str] = None
     release_id: str = ''
     definition_id: str = ''
+    prod_approved_by: Optional[str] = None
+    prod_deployed_by: Optional[str] = None
 
 
 @dataclass

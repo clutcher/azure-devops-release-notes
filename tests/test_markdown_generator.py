@@ -197,9 +197,35 @@ def should_display_summary_statistics_when_generating(generator, sample_work_ite
     # When generating markdown
     markdown = generator.generate(release_number, sample_work_items, sample_releases, set())
 
-    # Then should show correct statistics
-    assert "**Total Work Items:** 4" in markdown
-    assert "**Microservices Released:** 2" in markdown
+    # Then should show counts collapsed into a single line
+    assert "**Work Items:** 4 across 2 microservices" in markdown
+
+
+def should_omit_microservice_clause_when_no_releases_available(generator, sample_work_items):
+    # Given work items but no releases (e.g., Builds-API fallback)
+    release_number = "2025.006"
+
+    # When generating markdown
+    markdown = generator.generate(release_number, sample_work_items, [], set())
+
+    # Then should show only the work item count
+    assert "**Work Items:** 4" in markdown
+    assert "across" not in markdown
+
+
+def should_group_audit_lines_with_soft_line_break(generator, sample_work_items, sample_releases):
+    # Given releases with approver and deployer
+    release_number = "2025.006"
+
+    # When generating markdown
+    markdown = generator.generate(release_number, sample_work_items, sample_releases, set())
+
+    # Then audit lines preceding others should end with two trailing spaces (Markdown <br>)
+    assert "**Release Date:** November 06, 2025  \n" in markdown
+    assert "**Approved By:** Alice Approver  \n" in markdown
+    # And the iteration line (scope group, has count after it) should also end with two spaces
+    iteration_line = next(line for line in markdown.split("\n") if line.startswith("**Iteration:"))
+    assert iteration_line.endswith("  ")
 
 
 def should_display_breakdown_by_type_when_generating(generator, sample_work_items):
@@ -397,6 +423,88 @@ def should_show_standalone_items_section_when_orphans_exist(organization_url, pr
 
     # Then should include Standalone Items section
     assert "#### 📌 Standalone Items" in markdown
+
+
+def should_show_approver_in_summary_when_releases_have_approver(generator, sample_work_items, sample_releases):
+    # Given releases approved by the same person
+    release_number = "2025.006"
+
+    # When generating markdown
+    markdown = generator.generate(release_number, sample_work_items, sample_releases, set())
+
+    # Then summary should include single approver name
+    assert "**Approved By:** Alice Approver" in markdown
+
+
+def should_show_deployer_in_summary_when_releases_have_deployer(generator, sample_work_items, sample_releases):
+    # Given releases deployed by the same person
+    release_number = "2025.006"
+
+    # When generating markdown
+    markdown = generator.generate(release_number, sample_work_items, sample_releases, set())
+
+    # Then summary should include single deployer name
+    assert "**Deployed By:** Bob Deployer" in markdown
+
+
+def should_join_unique_approvers_when_releases_have_different_approvers(generator, sample_work_items):
+    # Given releases with different approvers
+    releases = [
+        Release(microservice="svc-a", version="v1", prod_approved_by="Alice Approver", prod_deployed_by="Bob Deployer"),
+        Release(microservice="svc-b", version="v2", prod_approved_by="Charlie Approver", prod_deployed_by="Bob Deployer"),
+    ]
+    release_number = "2025.006"
+
+    # When generating markdown
+    markdown = generator.generate(release_number, sample_work_items, releases, set())
+
+    # Then approvers should be comma-joined in sorted order
+    assert "**Approved By:** Alice Approver, Charlie Approver" in markdown
+
+
+def should_omit_approver_line_when_no_release_has_approver(generator, sample_work_items):
+    # Given releases without approver info
+    releases = [
+        Release(microservice="svc-a", version="v1"),
+        Release(microservice="svc-b", version="v2"),
+    ]
+    release_number = "2025.006"
+
+    # When generating markdown
+    markdown = generator.generate(release_number, sample_work_items, releases, set())
+
+    # Then approver line should be absent
+    assert "**Approved By:**" not in markdown
+
+
+def should_omit_deployer_line_when_no_release_has_deployer(generator, sample_work_items):
+    # Given releases without deployer info
+    releases = [
+        Release(microservice="svc-a", version="v1"),
+        Release(microservice="svc-b", version="v2"),
+    ]
+    release_number = "2025.006"
+
+    # When generating markdown
+    markdown = generator.generate(release_number, sample_work_items, releases, set())
+
+    # Then deployer line should be absent
+    assert "**Deployed By:**" not in markdown
+
+
+def should_ignore_empty_approver_when_extracting(generator, sample_work_items):
+    # Given one release with approver and one with empty string
+    releases = [
+        Release(microservice="svc-a", version="v1", prod_approved_by="Alice Approver"),
+        Release(microservice="svc-b", version="v2", prod_approved_by=""),
+    ]
+    release_number = "2025.006"
+
+    # When generating markdown
+    markdown = generator.generate(release_number, sample_work_items, releases, set())
+
+    # Then only the non-empty approver should appear
+    assert "**Approved By:** Alice Approver" in markdown
 
 
 def should_not_show_parent_headers_when_group_by_parent_disabled(organization_url, project_name):
