@@ -17,6 +17,7 @@ SYSTEM_ACCOUNT_PATTERNS = [
 ]
 
 APPROVAL_COMMENT_PATTERN = re.compile(r'Approved by (.+?)\s+via\b', re.IGNORECASE)
+DEPLOYMENT_COMMENT_PATTERN = re.compile(r'deployed by (.+?)\s+via\b', re.IGNORECASE)
 
 MAX_DEBUG_RELEASES = 3
 
@@ -337,7 +338,7 @@ class AzureDevOpsClient:
         prod_environment = self._find_prod_environment(release_data)
         prod_deploy_time = self._extract_prod_deployment_time(prod_environment)
         prod_approved_by = self._extract_release_approver(release_data, prod_environment)
-        prod_deployed_by = self._extract_release_deployer(prod_environment)
+        prod_deployed_by = self._extract_release_deployer(release_data, prod_environment)
 
         return Release(
             microservice=pipeline_name,
@@ -370,7 +371,13 @@ class AzureDevOpsClient:
             return approver
         return self._find_approver_in_comments(release_data)
 
-    def _extract_release_deployer(self, prod_environment: Optional[dict]) -> Optional[str]:
+    def _extract_release_deployer(self, release_data: dict, prod_environment: Optional[dict]) -> Optional[str]:
+        deployer = self._find_manual_deployer(prod_environment)
+        if deployer:
+            return deployer
+        return self._find_deployer_in_comments(release_data)
+
+    def _find_manual_deployer(self, prod_environment: Optional[dict]) -> Optional[str]:
         if not prod_environment:
             return None
         for step in reversed(prod_environment.get('deploySteps', [])):
@@ -378,6 +385,28 @@ class AzureDevOpsClient:
             if display_name and not self._is_system_account(display_name):
                 return display_name
         return None
+
+    def _find_deployer_in_comments(self, release_data: dict) -> Optional[str]:
+        name = self._parse_deployer_comment(release_data.get('description'))
+        if name:
+            return name
+        for env in release_data.get('environments', []):
+            for step in reversed(env.get('deploySteps', [])):
+                name = self._parse_deployer_comment(step.get('comments'))
+                if name:
+                    return name
+        return None
+
+    def _parse_deployer_comment(self, comments: Optional[str]) -> Optional[str]:
+        if not comments:
+            return None
+        match = DEPLOYMENT_COMMENT_PATTERN.search(comments)
+        if not match:
+            return None
+        name = match.group(1).strip()
+        if not name or self._is_system_account(name):
+            return None
+        return name
 
     def _find_manual_approver(self, prod_environment: Optional[dict]) -> Optional[str]:
         if not prod_environment:
