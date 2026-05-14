@@ -255,7 +255,7 @@ def should_return_none_when_prod_environment_not_found(client):
     assert prod_environment is None
     assert client._extract_prod_deployment_time(prod_environment) is None
     assert client._extract_release_approver(release_data, prod_environment) is None
-    assert client._extract_release_deployer(prod_environment) is None
+    assert client._extract_release_deployer(release_data, prod_environment) is None
 
 
 def should_find_prod_environment_when_present(client):
@@ -413,7 +413,7 @@ def should_extract_prod_deployer_when_human_triggered_prod_deploy(client):
     prod_environment = client._find_prod_environment(release_data)
 
     # When extracting the release deployer
-    result = client._extract_release_deployer(prod_environment)
+    result = client._extract_release_deployer(release_data, prod_environment)
 
     # Then should return the human deployer
     assert result == 'Bob Deployer'
@@ -434,7 +434,7 @@ def should_return_none_when_prod_deploy_triggered_by_system_account(client):
     prod_environment = client._find_prod_environment(release_data)
 
     # When extracting the release deployer
-    result = client._extract_release_deployer(prod_environment)
+    result = client._extract_release_deployer(release_data, prod_environment)
 
     # Then should return None (no human deployer is recorded)
     assert result is None
@@ -456,10 +456,78 @@ def should_return_latest_prod_deployer_when_multiple_steps_exist(client):
     prod_environment = client._find_prod_environment(release_data)
 
     # When extracting the release deployer
-    result = client._extract_release_deployer(prod_environment)
+    result = client._extract_release_deployer(release_data, prod_environment)
 
     # Then should return the most recent deployer
     assert result == 'Latest Deployer'
+
+
+def should_fall_back_to_description_when_prod_deploy_step_is_automated(client):
+    # Given a release whose PROD deploy step ran under a system account but the description names the human
+    release_data = {
+        'description': (
+            'Prod deployed by Valerii Chkalov via execute-release pipeline for release 2026.016\n\n'
+            'Execute Pipeline: https://example.com/test-link 5/11/2026, 3:41 PM'
+        ),
+        'environments': [
+            {
+                'name': 'PROD',
+                'deploySteps': [
+                    {'requestedBy': {'displayName': 'Project Collection Build Service (Org)'}}
+                ]
+            }
+        ]
+    }
+    prod_environment = client._find_prod_environment(release_data)
+
+    # When extracting the release deployer
+    result = client._extract_release_deployer(release_data, prod_environment)
+
+    # Then should return the human name parsed from the release description
+    assert result == 'Valerii Chkalov'
+
+
+def should_fall_back_to_deploy_step_comment_when_description_has_no_pattern(client):
+    # Given a release where the description is silent but a deploy step comment names the deployer
+    release_data = {
+        'description': 'Routine release for sprint 5.',
+        'environments': [
+            {
+                'name': 'PROD',
+                'deploySteps': [
+                    {
+                        'requestedBy': {'displayName': 'Microsoft.VisualStudio.Services'},
+                        'comments': 'Deployed by Jane Operator via execute-release pipeline for release 2026.017'
+                    }
+                ]
+            }
+        ]
+    }
+    prod_environment = client._find_prod_environment(release_data)
+
+    # When extracting the release deployer
+    result = client._extract_release_deployer(release_data, prod_environment)
+
+    # Then should return the human name parsed from the deploy step comment
+    assert result == 'Jane Operator'
+
+
+def should_parse_deployer_name_from_description_when_pattern_matches(client):
+    # Given a description with the standard pipeline message
+    description = 'Prod deployed by Valerii Chkalov via execute-release pipeline for release 2026.016'
+
+    # When parsing the description
+    result = client._parse_deployer_comment(description)
+
+    # Then should return the deployer name
+    assert result == 'Valerii Chkalov'
+
+
+def should_return_none_when_deployer_pattern_does_not_match(client):
+    # Given text without the expected pattern
+    assert client._parse_deployer_comment('Released to prod manually') is None
+    assert client._parse_deployer_comment(None) is None
+    assert client._parse_deployer_comment('') is None
 
 
 def should_return_none_when_notes_field_is_missing(client):
