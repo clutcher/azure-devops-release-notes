@@ -297,7 +297,7 @@ The tool tries to populate the `Approved By` and `Deployed By` lines automatical
 
 1. **Approver**
    1. First, scan the PROD environment's `preDeployApprovals` for an `approvedBy.displayName` that is **not** a system account ("Project Collection Build Service", "Microsoft.VisualStudio.Services…"). Use that name if found.
-   2. Otherwise, scan **every** environment's approval `comments` for the pattern `Approved by <NAME> via …`. This supports pipelines that approve PROMOTE programmatically and record the human's name in the comment (see `release-approval-pipeline.yaml` in your approval pipeline repository for the convention).
+   2. Otherwise, scan **every** environment's approval `comments` for the pattern `Approved by <NAME> via …`. This supports pipelines that approve PROMOTE programmatically and record the human's name in the comment, for example an approval pipeline that writes `Approved by $(Build.RequestedFor) via approval-release pipeline …`.
 2. **Deployer** — scan the PROD environment's `deploySteps[].requestedBy.displayName`, skipping system accounts. If no human triggered the deploy, the field stays empty and the line is omitted entirely.
 
 When auto-detection cannot find a name (e.g. fully automated PROD pipeline with no human deploy step), pass `--approved-by` / `--deployed-by` explicitly. These values override whatever was detected and apply to every microservice in the release.
